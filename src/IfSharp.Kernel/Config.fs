@@ -41,7 +41,7 @@ let KernelDir =
       | PlatformID.Unix -> Path.Combine(appData, "jupyter")
       | _ -> Path.Combine(appData, "Jupyter")
   let kernelsDir = Path.Combine(jupyterDir, "kernels")
-  let kernelDir = Path.Combine(kernelsDir, "ifsharp")
+  let kernelDir = Path.Combine(kernelsDir, "iqsharp")
   kernelDir
 let StaticDir = Path.Combine(KernelDir, "static")
 let TempDir = Path.Combine(StaticDir, "temp")

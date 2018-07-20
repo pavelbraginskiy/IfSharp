@@ -4,7 +4,6 @@
 
 #r @"packages/FAKE/tools/FakeLib.dll"
 open Fake 
-open Fake.Git
 open Fake.AssemblyInfoFile
 open Fake.ReleaseNotesHelper
 open System
@@ -24,13 +23,7 @@ let project = "IfSharp"
 
 // Short summary of the project
 // (used as description in AssemblyInfo and as a short summary for NuGet package)
-let summary = "F# kernel for Jupyter Notebooks."
-
-// Git configuration (used for publishing documentation in gh-pages branch)
-// The profile where the project is posted 
-let gitHome = "https://github.com/fsprojects/"
-// The name of the project on GitHub
-let gitName = "IfSharp"
+let summary = "Q# kernel for Jupyter Notebooks."
 
 // --------------------------------------------------------------------------------------
 // END TODO: The rest of the file includes standard build steps 

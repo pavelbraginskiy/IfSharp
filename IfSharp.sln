@@ -11,11 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "build", "build", "{3C993D34
 		build.fsx = build.fsx
 	EndProjectSection
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IfSharp.Kernel.Tests", "tests\IfSharp.Kernel.Tests\IfSharp.Kernel.Tests.fsproj", "{52627028-50B5-427F-BDDB-9DEADB72E7D6}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ipython-profile", "ipython-profile", "{F5A3E866-86FB-44AD-9ED1-DB65D6EB0058}"
 	ProjectSection(SolutionItems) = preProject
-		ipython-profile\static\custom\ifsharp_logo.png = ipython-profile\static\custom\ifsharp_logo.png
 		ipython-profile\ipython_config.py = ipython-profile\ipython_config.py
 		ipython-profile\ipython_qtconsole_config.py = ipython-profile\ipython_qtconsole_config.py
 		ipython-profile\kernel.js = ipython-profile\kernel.js
@@ -26,7 +23,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "custom", "custom", "{3AAFA64D-CBB6-488E-B395-6A1E7CB554CE}"
 	ProjectSection(SolutionItems) = preProject
 		ipython-profile\static\custom\fsharp.css = ipython-profile\static\custom\fsharp.css
-		ipython-profile\static\custom\ifsharp_logo.png = ipython-profile\static\custom\ifsharp_logo.png
 		ipython-profile\static\custom\webintellisense-codemirror.js = ipython-profile\static\custom\webintellisense-codemirror.js
 		ipython-profile\static\custom\webintellisense.js = ipython-profile\static\custom\webintellisense.js
 	EndProjectSection
@@ -34,11 +30,16 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "kernel-spec", "kernel-spec", "{4D56C9F0-7F98-4587-A320-98C06876AC9B}"
 	ProjectSection(SolutionItems) = preProject
 		kernel-spec\kernel.json = kernel-spec\kernel.json
-		kernel-spec\logo-32x32.png = kernel-spec\logo-32x32.png
-		kernel-spec\logo-64x64.png = kernel-spec\logo-64x64.png
 	EndProjectSection
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "IfSharp", "src\IfSharp\IfSharp.fsproj", "{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{F5AFF2B7-557B-40E0-9622-56AF9C9F7B2E}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QSEvaluator", "src\QSEvaluator\QSEvaluator.csproj", "{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -56,14 +57,6 @@ Global
 		{2FE619B3-4756-4285-B31F-232607F62D78}.Release|Any CPU.Build.0 = Release|Any CPU
 		{2FE619B3-4756-4285-B31F-232607F62D78}.Release|x64.ActiveCfg = Release|x64
 		{2FE619B3-4756-4285-B31F-232607F62D78}.Release|x64.Build.0 = Release|x64
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Debug|x64.ActiveCfg = Debug|x64
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Debug|x64.Build.0 = Debug|x64
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Release|Any CPU.Build.0 = Release|Any CPU
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Release|x64.ActiveCfg = Release|x64
-		{52627028-50B5-427F-BDDB-9DEADB72E7D6}.Release|x64.Build.0 = Release|x64
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -72,6 +65,14 @@ Global
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Release|x64.ActiveCfg = Release|Any CPU
 		{5FC8E68C-C5F9-4FEF-B000-EC99871D3A4E}.Release|x64.Build.0 = Release|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Debug|x64.Build.0 = Debug|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Release|x64.ActiveCfg = Release|Any CPU
+		{984C1616-49BF-4D24-81FD-68CA3BBD3D8F}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

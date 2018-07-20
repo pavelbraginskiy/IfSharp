@@ -81,7 +81,6 @@
     <Compile Include="IfSharpResources.fs" />
     <Compile Include="DirectivePreprocessor.fs" />
     <Compile Include="NuGetManager.fs" />
-    <Compile Include="FsCompiler.fs" />
     <None Include="Include.fsx">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -89,8 +88,6 @@
     <Compile Include="Util.fs" />
     <Compile Include="MainTypes.fs" />
     <Compile Include="ShellMessages.fs" />
-    <Compile Include="Evaluation.fs" />
-    <Compile Include="Printers.fs" />
     <Compile Include="Kernel.fs" />
     <EmbeddedResource Include="IfSharpResources.resx" />
     <Compile Include="App.fs" />
@@ -109,6 +106,13 @@
     <Reference Include="System.Web" />
     <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\QSEvaluator\QSEvaluator.csproj">
+      <Name>QSEvaluator</Name>
+      <Project>{984c1616-49bf-4d24-81fd-68ca3bbd3d8f}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

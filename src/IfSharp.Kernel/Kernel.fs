@@ -3,10 +3,10 @@
 open System
 open System.Collections.Generic
 open System.IO
-open System.Reflection
 open System.Text
 open System.Security.Cryptography
 
+open QSEvaluator
 
 open Newtonsoft.Json
 open NetMQ
@@ -59,8 +59,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
     let shellSocketURL =String.Format("{0}://{1}:{2}", connectionInformation.transport, connectionInformation.ip, connectionInformation.shell_port)
     do shellSocket.Bind(shellSocketURL)
 
-    let payload = new List<Payload>()
-    let nuGetManager = NuGetManager(FileInfo(".").FullName)
     let mutable executionCount = 0
     let mutable lastMessage : Option<KernelMessage> = None
 
@@ -68,14 +66,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
     let mutable registeredComms : Map<CommTargetName,CommCallbacks> = Map.empty;
     /// Comms that are in the open state
     let mutable activeComms : Map<CommId,CommTargetName> = Map.empty;
-
-    /// Gets the header code to prepend to all items
-    let headerCode = 
-        let file = FileInfo(Assembly.GetEntryAssembly().Location)
-        let dir = file.Directory.FullName
-        let includeFile = Path.Combine(dir, "Include.fsx")
-        let code = File.ReadAllText(includeFile)
-        String.Format(code, dir.Replace("\\", "\\\\"))
 
     /// Splits the message up into lines and writes the lines to shell.log
     let logMessage (msg : string) =
@@ -101,10 +91,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
     /// Encodes a string into a byte array using UTF8
     let encode (str : string) =
         Encoding.UTF8.GetBytes(str)
-
-    /// Deserializes a dictionary from a JSON string
-    let deserializeDict (str) =
-        JsonConvert.DeserializeObject<Dictionary<string, string>>(str)
 
     /// Serializes any object into JSON
     let serialize (obj) =
@@ -149,7 +135,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
         
         let header           = JsonConvert.DeserializeObject<Header>(headerJson)
         let parentHeader     = JsonConvert.DeserializeObject<Header>(parentHeaderJson)
-        let metaDataDict     = deserializeDict (metadata)
         let content          = ShellMessages.Deserialize (header.msg_type) (contentJson)
 
         let calculated_signature = sign [headerJson; parentHeaderJson; metadata; contentJson]
@@ -247,77 +232,17 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
             let reply = { execution_count = executionCount; data = d; metadata = Dictionary<string,obj>() }
             sendMessage ioSocket lastMessage.Value messageType reply
 
-    /// Sends a message to pyout
-    let pyout (message) = sendDisplayData "text/plain" message "pyout"
 
-    let nugetErrors (nugetLines:string[]) =
-        if nugetLines.Length > 0 then 
-            nugetLines
-                |> (Seq.map nuGetManager.ParseNugetLine >> Seq.map (fun (name, version, pre) -> "\"" + name + "\""))
-                |> (String.concat "; ")
-                |> sprintf """Instead of #N please get NuGets by Paket (https://fsprojects.github.io/Paket/) e.g. %s%s#load "Paket.fsx"%sPaket.Package [%s]"""
-                    Environment.NewLine
-                    Environment.NewLine
-                    Environment.NewLine
-        else
-            null
-
-    /// Preprocesses the code and evaluates it
-    let preprocessCode(code) = 
-
-        logMessage code
-
-        // preprocess
-        let preprocessing = nuGetManager.Preprocess(code)
-        let newCode = String.Join("\n", preprocessing.FilteredLines)
-
-        if not (Seq.isEmpty preprocessing.HelpLines) then
-            fsiEval.EvalInteraction("#help")
-            let ifsharpHelp =
-                """  IF# notebook directives:
-    #fsioutput ["on"|"off"];;   Toggle output display on/off
-    """
-            let fsiHelp = sbOut.ToString()
-            pyout (ifsharpHelp + fsiHelp)
-            sbOut.Clear() |> ignore
-
-        //This is a persistent toggle, just respect the last one
-        if not (Seq.isEmpty preprocessing.FsiOutputLines) then
-            let lastFsiOutput = Seq.last preprocessing.FsiOutputLines
-            if lastFsiOutput.ToLower().Contains("on") then
-                fsiout := true
-            else if lastFsiOutput.ToLower().Contains("off") then
-                fsiout := false
-            else
-                pyout (sprintf "Unreocognised fsioutput setting: %s" lastFsiOutput)
-
-        let nugetErrors = nugetErrors preprocessing.NuGetLines
-            
-        newCode, nugetErrors
+    let mutable evaluator : QsEvaluator Option = None
 
     /// Handles an 'execute_request' message
     let executeRequest(msg : KernelMessage) (content : ExecuteRequest) = 
-        
-        // Send error local function
-        let sendError err =
-                let executeReply =
-                    {
-                        status = "error";
-                        execution_count = executionCount;
-                        ename = "generic";
-                        evalue = err;
-                        traceback = [||]
-                    }
-
-                sendMessage shellSocket msg "execute_reply" executeReply
-                sendMessage ioSocket msg "stream" { name = "stderr"; data = err; }
-                logMessage err
-
-        // clear some state from previous runs
-        sbOut.Clear() |> ignore
-        sbErr.Clear() |> ignore
-        sbPrint.Clear() |> ignore
-        payload.Clear()
+        let e =
+            match evaluator with
+            | Some v -> v
+            | None ->
+                evaluator <- Some <| new QsEvaluator()
+                evaluator.Value        
 
         // only increment if we are not silent
         if not content.silent then executionCount <- executionCount + 1
@@ -326,138 +251,32 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
         sendStateBusy msg
         sendMessage ioSocket msg "pyin" { code = content.code; execution_count = executionCount  }
 
-        // preprocess
-        let newCode, err = preprocessCode content.code
+        let result = e.EvaluateStatement(content.code)
 
-        if not (String.IsNullOrEmpty err) then
-            sendError err
+        sendMessage ioSocket msg "stream" { name = "stdout"; data = result.Output; }
+        sendMessage ioSocket msg "stream" { name = "stderr"; data = result.ErrOutput; }
 
-        // evaluate
-        if not (String.IsNullOrEmpty newCode) then
-            try 
-                let value, errors = fsiEval.EvalInteractionNonThrowing newCode
+        let executeReply =
+            {
+                status = "ok";
+                execution_count = executionCount;
+                payload = [];
+                user_variables = Dictionary<string,obj>();
+                user_expressions = Dictionary<string,obj>()
+            }
 
-                if errors |> Array.length > 0 then
-                    let err = errors |> Seq.map (fun error -> error.Message) |> (String.concat Environment.NewLine)
-                    sendError err
-
-                match value with
-                | Choice1Of2 _ ->
-                    () //Success!
-
-                    let executeReply =
-
-                        {
-                            status = "ok";
-                            execution_count = executionCount;
-                            payload = payload |> Seq.toList;
-                            user_variables = Dictionary<string,obj>();
-                            user_expressions = Dictionary<string,obj>()
-                        }
-
-                    sendMessage shellSocket msg "execute_reply" executeReply
-
-                    // send all the data
-                    if not content.silent then
-                        let lastExpression = GetLastExpression()
-                        match lastExpression with
-                        | Some(it) -> 
-                            if it.ReflectionType <> typeof<unit> then
-                                let printer =
-                                    Printers.findDisplayPrinter it.ReflectionType
-                                let (_, callback) = printer
-                                let callbackValue = callback(it.ReflectionValue)
-                                sendDisplayData callbackValue.ContentType callbackValue.Data "pyout"
-
-                        | None -> ()
-
-
-                | Choice2Of2 exn ->
-                    //Usually this is redundant but if we haven't shown any errors, try showing this
-                    if errors.Length = 0 then
-                        let err = "Expression evaluation failed: " + exn.Message + Environment.NewLine + exn.CompleteStackTrace()
-                        sendError err
-            with exn ->
-                let err = "Expression evaluation failed: " + exn.Message + Environment.NewLine + exn.CompleteStackTrace()
-                sendError err
-
-        if sbPrint.Length > 0 then
-            sendDisplayData "text/plain" (sbPrint.ToString()) "display_data"
+        sendMessage shellSocket msg "execute_reply" executeReply
 
         // we are now idle
         sendStateIdle msg
 
-    /// Handles a 'complete_request' message
-    let completeRequest (msg : KernelMessage) (content : CompleteRequest) =
-        // Don't respond. Use "intellisense_request" instead.
-        ()
-
-    /// Handles a 'intellisense_request' message
-    let intellisenseRequest (msg : KernelMessage) (content : IntellisenseRequest) = 
-
-        // in our custom UI we put all cells in content.text and more information in content.block
-        // the position is contains the selected index and the relative character and line number
-        let cells = JsonConvert.DeserializeObject<array<string>>(content.text)
-        let codes = cells |> Seq.append [headerCode]
-        let position = JsonConvert.DeserializeObject<BlockType>(content.block)
-
-        // calculate absolute line number
-        let lineOffset = 
-            codes
-            |> Seq.take (position.selectedIndex + 1)
-            |> Seq.map (fun x -> x.Split('\n').Length)
-            |> Seq.sum
-
-        let realLineNumber = position.line + lineOffset + 1
-        let codeString = String.Join("\n", codes)
-
-        let (decls, tcr, filterStartIndex, filterString) = GetDeclarations(codeString, realLineNumber, position.ch)
+    // None for Q#
+    let completeRequest _ _ = ()
         
-        let matches = 
-            decls
-            |> Seq.map (fun x -> { glyph = x.Glyph; name = x.Name; documentation = x.Documentation; value = x.Value })
-            |> Seq.toList
-
-        let newContent = 
-            {
-                matched_text = filterString
-                filter_start_index = filterStartIndex
-                matches = matches
-                status = "ok"
-            }
-
-        // send back errors
-        let errors = 
-            [|
-                yield! tcr.Errors |> Seq.map CustomErrorInfo.From
-            |]
-
-        // create an array of tuples <cellNumber>, <line>
-        let allLines = 
-            [|
-                for index, cell in cells |> Seq.mapi (fun i x -> i, x) do
-                    for cellLineNumber, line in cell.Split('\n') |> Seq.mapi (fun i x -> i, x) do
-                        yield index, cellLineNumber, line
-            |]
-
-        let newErrors = 
-            [|
-                let headerLines = headerCode.Split('\n')
-                for e in errors do
-                    let realLineNumber = 
-                        let x = e.StartLine - headerLines.Length - 1
-                        max x 0
-
-                    let cellNumber, cellLineNumber, _ = allLines.[realLineNumber]
-                    yield { e with CellNumber = cellNumber; StartLine = cellLineNumber; EndLine = cellLineNumber; }
-            |]
-            |> Array.filter (fun x -> x.Subcategory <> "parse")
-            
-        sendDisplayData "errors" newErrors "display_data"
-        sendMessage (shellSocket) (msg) ("complete_reply") (newContent)
+    let intellisenseRequest _ _ = ()
 
     /// Handles a 'connect_request' message
-    let connectRequest (msg : KernelMessage) (content : ConnectRequest) = 
+    let connectRequest (msg : KernelMessage) _ = 
 
         let reply =
             {
@@ -472,26 +291,26 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
 
     /// Handles a 'shutdown_request' message
     let shutdownRequest (msg : KernelMessage) (content : ShutdownRequest) =
+        match evaluator with
+        | Some e -> e.Dispose()
+        | None -> ()
+
         logMessage "shutdown request"
-        // TODO: actually shutdown        
-        let reply = { restart = true; }
+  
+        let reply = { restart = content.restart; }
 
         sendMessage shellSocket msg "shutdown_reply" reply;
-        System.Environment.Exit(0)
+
+        if content.restart then evaluator <- Some <| new QsEvaluator() else exit 0
 
     /// Handles a 'history_request' message
-    let historyRequest (msg : KernelMessage) (content : HistoryRequest) =
-
+    let historyRequest (msg : KernelMessage) _ =
         // TODO: actually handle this
         sendMessage shellSocket msg "history_reply" { history = [] }
 
-    /// Handles a 'object_info_request' message
-    let objectInfoRequest (msg : KernelMessage) (content : ObjectInfoRequest) =
-        // TODO: actually handle this
-        ()
+    let objectInfoRequest _ _ = ()
 
-    let inspectRequest (msg : KernelMessage) (content : InspectRequest) =
-        // TODO: actually handle this
+    let inspectRequest (msg : KernelMessage) _ =
         let reply = { status = "ok"; found = false; data = Dictionary<string,obj>(); metadata = Dictionary<string,obj>() }
         sendMessage shellSocket msg "inspect_reply" reply
         ()
@@ -559,11 +378,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
     /// Loops forever receiving messages from the client and processing them
     let doShell() =
 
-        fsiEval.EvalInteraction headerCode
-
-        logMessage (sbErr.ToString())
-        logMessage (sbOut.ToString())
-
         while true do
             let msg = recvMessage (shellSocket)
 
@@ -595,51 +409,6 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
                 | _                      -> logMessage (String.Format("Unexpected content type on control. msg_type is `{0}`", msg.Header.msg_type))
             with 
             | ex -> handleException ex
-
-    /// Loops repeating message from the client
-    let doHeartbeat() =
-
-        try
-            while true do
-                let hb = hbSocket.ReceiveMultipartBytes() in
-                hbSocket.SendMultipartBytes hb
-        with
-        | ex -> handleException ex
-    
-    /// Regesters a comm with specified target_name and callbacks
-    member __.RegisterComm(target_name, onOpen,onMessage,onClose) =
-        if Map.containsKey target_name registeredComms then
-            logMessage (sprintf "Warning! The comm with target_name \"%s\" is already registered. Overriding previous registration" target_name)
-        let callbacks :CommCallbacks = 
-            {
-                onOpen = onOpen
-                onMessage = onMessage
-                onClose = onClose
-            }
-        registeredComms <- Map.add target_name callbacks registeredComms
-    
-    /// Removes comm registration by specified comm target_name
-    member __.UnregisterComm(target_name) =
-        registeredComms <- Map.remove target_name registeredComms
-    
-    /// Returns the constructed comm_id, send function. Comm target_name must be registered with RegisterComm prior to this call
-    //member __.OpenComm(target_name) =
-    //    match Map.tryFind target_name registeredComms with
-    //    | Some callbacks ->
-    //        sendMessage
-            
-    //    | Nonw ->
-    //        failwith (sprintf "the comm target_name \"%s\" is not registered. Register it befor opening" target_name)
-        
-
-    /// Clears the display
-    member __.ClearDisplay () =
-        if lastMessage.IsSome then
-            sendMessage (ioSocket) (lastMessage.Value) ("clear_output") { wait = false; stderr = true; stdout = true; other = true; }
-
-    /// Sends auto complete information to the client
-    member __.AddPayload (text) =
-        payload.Add( { html = ""; source = "page"; start_line_number = 1; text = text })
 
     /// Adds display data to the list of display data to send to the client
     member __.SendDisplayData (contentType, displayItem) =

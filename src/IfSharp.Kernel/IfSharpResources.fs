@@ -12,7 +12,6 @@ module IfSharpResources =
          let array = resources.GetObject(name) :?> array<byte>
          Encoding.UTF8.GetString(array)
 
-    let ifsharp_logo() = resources.GetObject("ifsharp_logo") :?> byte array
     let fsharp_css() = resources.GetString("fsharp_css")
     let kernel_js() = resources.GetString("kernel_js")
     let webintellisense_js() = resources.GetString("webintellisense")
@@ -20,5 +19,3 @@ module IfSharpResources =
     let ipython_config() = getString("ipython_config")
     let ipython_qt_config() = getString("qtconsole_config")
     let ifsharp_kernel_json() = getString("kernel_json")
-    let ifsharp_64logo() = resources.GetObject("logo64File") :?> byte array
-    let ifsharp_32logo() = resources.GetObject("logo32File") :?> byte array
