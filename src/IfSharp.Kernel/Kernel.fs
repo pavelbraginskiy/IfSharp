@@ -251,7 +251,11 @@ type IfSharpKernel(connectionInformation : ConnectionInformation) =
         sendStateBusy msg
         sendMessage ioSocket msg "pyin" { code = content.code; execution_count = executionCount  }
 
+        DateTime.Now |> printfn "Time recieved code: %A"
+
         let result = e.EvaluateStatement(content.code)
+
+        DateTime.Now |> printfn "Time evaluated code: %A"
 
         sendMessage ioSocket msg "stream" { name = "stdout"; data = result.Output; }
         sendMessage ioSocket msg "stream" { name = "stderr"; data = result.ErrOutput; }

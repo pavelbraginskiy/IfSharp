@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -14,6 +15,41 @@ namespace QSEvaluator
 
 		#region strings
 
+		private const string ProjFileTemplate = @"
+<Project Sdk=""Microsoft.NET.Sdk"">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include=""Microsoft.Quantum.Canon"" Version=""0.2.1806.3001-preview"" />
+    <PackageReference Include=""Microsoft.Quantum.Development.Kit"" Version=""0.2.1806.3001-preview"" />
+  </ItemGroup>
+
+  <ItemGroup>
+    !!REFS!!
+  </ItemGroup>
+
+</Project>
+";
+
+		private const string SimulatorTest = @"
+using Microsoft.Quantum.using Microsoft.Quantum.Simulation.Core;         
+using Microsoft.Quantum.Simulation.Simulators;
+namespace __QSI
+{
+	public class Driver
+	{
+		public static void Main()
+		{
+			_ = new !!SIM!!;
+		}
+	}
+}
+";
 
 		private const string DriverTemplate = @"
 # pragma warning disable CS0184
@@ -28,7 +64,7 @@ namespace __QSI
 	{
 		public static async Task Main(string[] args)
 		{
-			var result = await !!NAME!!.Run(new QuantumSimulator());
+			var result = await !!NAME!!.Run(new !!SIM!!);
 			if (!(result is QVoid)) {
 				Console.WriteLine(result);
 			}
@@ -57,8 +93,17 @@ namespace __QSI
 
 		#endregion strings
 
+		private readonly List<string> _opens = new List<string>();
+		private readonly Dictionary<string, string> _references = new Dictionary<string, string>();
+		private string _simulator = "QuantumSimulator()";
 		public QsEvaluator()
 		{
+			
+
+			foreach (var i in new[]{"Bitwise", "Convert", "Diagnostics", "Math", "RangeFunctions" }) {
+				_opens.Add($"Microsoft.Quantum.Extensions.{i}");
+			}
+
 			const string chars =
 				"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
@@ -211,6 +256,9 @@ namespace __QSI
 				file.WriteLine("namespace __QSI {");
 				file.WriteLine("open Microsoft.Quantum.Primitive;");
 				file.WriteLine("open Microsoft.Quantum.Canon;");
+				foreach (var i in _opens) {
+					file.WriteLine($"open {i};");
+				}
 				file.WriteLine(code);
 				file.WriteLine("}");
 			}
@@ -260,7 +308,7 @@ namespace __QSI
 
 			File.WriteAllText(
 				filename,
-				contents: DriverTemplate.Replace("!!NAME!!", name)
+				contents: DriverTemplate.Replace("!!NAME!!", name).Replace("!!SIM!!", _simulator)
 			);
 
 			RunProcess(
@@ -285,6 +333,100 @@ namespace __QSI
 			RunOperation("% __QSI_MAIN", out output, out error);
 		}
 
+		private void SetSim(string simulator, out string output, out string error) {
+			output = "";
+			error = "";
+
+			File.WriteAllText($"{ProjectDir}Driver.cs", SimulatorTest.Replace("!!SIM!!", simulator));
+			var ec = RunProcess("dotnet", "build", out var o, out var e);
+			File.Delete($"{ProjectDir}Driver.cs");
+			if (ec == 0) {
+				_simulator = simulator;
+				output = $"Quantum simulator is now `{simulator}'";
+			} else {
+				error = o + e;
+			}
+		}
+
+		private void DeleteOperation(string name, out string output, out string error) {
+			output = "";
+			error = "";
+			var path = $"{ProjectDir}{name}.qs";
+			if (File.Exists(path)) {
+				File.Delete(path);
+				output = $"Deleted `{name}'";
+			} else {
+				error = $"No such function or operation `{name}'";
+			}
+
+			
+		}
+
+		private void AddReference(string reference, string dllPath, out string output, out string error) {
+			output = "";
+			error = "";
+			var path = Path.IsPathRooted(dllPath)
+				? reference
+				: Path.Combine(Directory.GetCurrentDirectory(), reference);
+			
+			Directory.Delete($"{ProjectDir}bin", recursive:true);
+			File.Copy($"{ProjectDir}__QSI.csproj", $"{ProjectDir}__QSI.csproj.backup");
+			var sb = new StringBuilder(
+				ProjFileTemplate.Substring(0,
+					ProjFileTemplate.IndexOf("!!REF!!", StringComparison.Ordinal)
+				)
+			);
+
+			foreach (var (k, v) in _references.Select(kvp=>(kvp.Key, kvp.Value))) {
+				sb.Append($@"
+<Reference Include=""{k}"">
+	<HintPath>{v}</HintPath>
+</Reference>
+");
+			}
+			sb.Append($@"
+<Reference Include=""{reference}"">
+	<HintPath>{path}</HintPath>
+</Reference>
+");
+			sb.Append(
+				ProjFileTemplate.Substring(
+					ProjFileTemplate.IndexOf("!!REFS!!", StringComparison.Ordinal)
+					+ "!!REFS!!".Length
+				)
+			);
+
+			File.WriteAllText($"{ProjectDir}__QSI.csproj", sb.ToString());
+
+			if (RunProcess("dotnet", "build", out var o, out var e) != 0) {
+				error = o + e;
+				File.Delete($"{ProjectDir}__QSI.csproj");
+				File.Copy($"{ProjectDir}__QSI.csproj.backup", $"{ProjectDir}__QSI.csproj");
+			} else {
+				_references[reference] = path;
+				File.Delete($"{ProjectDir}__QSI.csproj.backup");
+				output = $"Added reference to assembly `{reference}.";
+			}
+		}
+
+		private void MetaCommand(string code, out string output, out string error) {
+			code = CleanupString(code.Substring(1));
+			switch (code.Split()[0]) {
+				case "simulator":
+					SetSim(Regex.Replace(code, @"^simulator\s+", ""), out output, out error);
+					return;
+				case "delete":
+					DeleteOperation(Regex.Replace(code, @"^delete\s+", ""), out output, out error);
+					return;
+				default:
+					error = $"Unknown meta command {code.Split()[0]}";
+					break;
+			}
+
+			output = "";
+			error = "";
+		}
+
 
 		public EvaluationResult EvaluateStatement(string code)
 		{
@@ -292,7 +434,7 @@ namespace __QSI
 			if (code.StartsWith("namespace"))
 				return ("", "Do not supply a namespace for operations and functions.");
 
-			if (!Regex.IsMatch(code, @"[{;]|(^(function|operation|%))", RegexOptions.ExplicitCapture))
+			if (!Regex.IsMatch(code, @"[{;]|(^(function|operation|%|#))", RegexOptions.ExplicitCapture))
 				return ("", "Supplied code must be either "
 						+ "be a series of Q# statements,\n"
 					    + "start with `operation' or `function',\n"
@@ -314,6 +456,9 @@ namespace __QSI
 			if (code.StartsWith("%"))
 			{
 				RunOperation(code, out output, out error);
+			}
+			else if (code.StartsWith("#")) {
+				MetaCommand(code, out output, out error);
 			}
 			else
 			{
