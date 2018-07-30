@@ -37,7 +37,7 @@ namespace QSEvaluator
 ";
 
 		private const string SimulatorTest = @"
-using Microsoft.Quantum.using Microsoft.Quantum.Simulation.Core;         
+using Microsoft.Quantum.Simulation.Core;         
 using Microsoft.Quantum.Simulation.Simulators;
 namespace __QSI
 {
@@ -338,11 +338,11 @@ namespace __QSI
 			error = "";
 
 			File.WriteAllText($"{ProjectDir}Driver.cs", SimulatorTest.Replace("!!SIM!!", simulator));
-			var ec = RunProcess("dotnet", "build", out var o, out var e);
+			var ec = RunProcess("dotnet", $"build {ProjectDir}__QSI.csproj", out var o, out var e);
 			File.Delete($"{ProjectDir}Driver.cs");
 			if (ec == 0) {
 				_simulator = simulator;
-				output = $"Quantum simulator is now `{simulator}'";
+				output = $"Quantum simulator is now `{simulator}'";	
 			} else {
 				error = o + e;
 			}
@@ -363,49 +363,77 @@ namespace __QSI
 		}
 
 		private void AddReference(string reference, string dllPath, out string output, out string error) {
-			output = "";
-			error = "";
-			var path = Path.IsPathRooted(dllPath)
-				? reference
-				: Path.Combine(Directory.GetCurrentDirectory(), reference);
-			
-			Directory.Delete($"{ProjectDir}bin", recursive:true);
-			File.Copy($"{ProjectDir}__QSI.csproj", $"{ProjectDir}__QSI.csproj.backup");
-			var sb = new StringBuilder(
-				ProjFileTemplate.Substring(0,
-					ProjFileTemplate.IndexOf("!!REF!!", StringComparison.Ordinal)
-				)
-			);
+			try {
+				Console.Error.WriteLine("Adding reference.");
+				Console.Error.WriteLine($"Reference: {reference}");
+				Console.Error.WriteLine($"Dll: {dllPath}");
 
-			foreach (var (k, v) in _references.Select(kvp=>(kvp.Key, kvp.Value))) {
-				sb.Append($@"
+				output = "";
+				error = "";
+				var path = Path.IsPathRooted(dllPath)
+					? reference
+					: Path.Combine(Directory.GetCurrentDirectory(), dllPath);
+			
+				Console.Error.WriteLine($"Detected full path to be {path}");
+				if (Directory.Exists($"{ProjectDir}bin")) {
+					Directory.Delete($"{ProjectDir}bin", recursive: true);
+				}
+				Console.Error.WriteLine("Deleted project bin/ directory.");
+				if (File.Exists($"{ProjectDir}__QSI.csproj.backup")) {
+					File.Delete($"{ProjectDir}__QSI.csproj.backup");
+				}
+				File.Copy($"{ProjectDir}__QSI.csproj", $"{ProjectDir}__QSI.csproj.backup");
+				Console.Error.WriteLine("Made backup of csproj");
+				Console.Error.WriteLine("Beginning to build new csproj.");
+				var sb = new StringBuilder(
+					ProjFileTemplate.Substring(0,
+						ProjFileTemplate.IndexOf("!!REFS!!", StringComparison.Ordinal)
+					)
+				);
+
+				foreach (var (k, v) in _references.Select(kvp=>(kvp.Key, kvp.Value))) {
+					if (k == reference) {
+						continue;
+					}
+					sb.Append($@"
 <Reference Include=""{k}"">
 	<HintPath>{v}</HintPath>
 </Reference>
 ");
-			}
-			sb.Append($@"
+				}
+				sb.Append($@"
 <Reference Include=""{reference}"">
 	<HintPath>{path}</HintPath>
 </Reference>
 ");
-			sb.Append(
-				ProjFileTemplate.Substring(
-					ProjFileTemplate.IndexOf("!!REFS!!", StringComparison.Ordinal)
-					+ "!!REFS!!".Length
-				)
-			);
+				sb.Append(
+					ProjFileTemplate.Substring(
+						ProjFileTemplate.IndexOf("!!REFS!!", StringComparison.Ordinal)
+						+ "!!REFS!!".Length
+					)
+				);
+				Console.Error.WriteLine(sb);
+				Console.Error.WriteLine("\n\n csproj built.");
 
-			File.WriteAllText($"{ProjectDir}__QSI.csproj", sb.ToString());
-
-			if (RunProcess("dotnet", "build", out var o, out var e) != 0) {
-				error = o + e;
-				File.Delete($"{ProjectDir}__QSI.csproj");
-				File.Copy($"{ProjectDir}__QSI.csproj.backup", $"{ProjectDir}__QSI.csproj");
-			} else {
-				_references[reference] = path;
-				File.Delete($"{ProjectDir}__QSI.csproj.backup");
-				output = $"Added reference to assembly `{reference}.";
+				File.WriteAllText($"{ProjectDir}__QSI.csproj", sb.ToString());
+				File.WriteAllText($"{ProjectDir}Driver.cs", EmptyDriver);
+				if (
+					RunProcess("dotnet", $"run --project {ProjectDir}__QSI.csproj", out var o, out var e) != 0
+					|| o.Contains("MSB3245")
+				) {
+					error = o + e;
+					Console.Error.WriteLine($"Failed:\n{error}");
+					File.Delete($"{ProjectDir}__QSI.csproj");
+					File.Copy($"{ProjectDir}__QSI.csproj.backup", $"{ProjectDir}__QSI.csproj");
+				} else {
+					Console.Error.WriteLine("Succeeded.");
+					_references[reference] = path;
+					File.Delete($"{ProjectDir}__QSI.csproj.backup");
+					output = $"Added reference to assembly `{reference}.";
+				}
+			} catch (Exception e) {
+				Console.Error.WriteLine(e);
+				throw;
 			}
 		}
 
@@ -417,6 +445,20 @@ namespace __QSI
 					return;
 				case "delete":
 					DeleteOperation(Regex.Replace(code, @"^delete\s+", ""), out output, out error);
+					return;
+				case "r":
+				case "reference":
+					var r = Regex.Replace(code, @"^(?:r|reference)\s+", "");
+					if (r.Split(new char[0], StringSplitOptions.RemoveEmptyEntries).Length < 2) {
+						error = "Bad `# reference' command.";
+						output = "";
+						return;
+					}
+					AddReference(
+						r.Split(new char[0], StringSplitOptions.RemoveEmptyEntries)[0],
+						r.Split(new char[0], 2, StringSplitOptions.RemoveEmptyEntries)[1],
+						out output, out error
+					);
 					return;
 				default:
 					error = $"Unknown meta command {code.Split()[0]}";
@@ -436,7 +478,7 @@ namespace __QSI
 
 			if (!Regex.IsMatch(code, @"[{;]|(^(function|operation|%|#))", RegexOptions.ExplicitCapture))
 				return ("", "Supplied code must be either "
-						+ "be a series of Q# statements,\n"
+						+ "be a series of *semicolon-terminated* Q# statements,\n"
 					    + "start with `operation' or `function',\n"
 					    + "or be in the form `% [operation/function name]'");
 
